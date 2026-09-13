@@ -1,0 +1,10 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    {
+      "_comment": "Runs daily at 04:00 UTC (09:30 IST); the route itself exits unless it is the 1st. Vercel's Hobby plan limits cron frequency, and a daily job that self-checks the date works on every plan.",
+      "path": "/api/cron/monthly-report",
+      "schedule": "0 4 * * *"
+    }
+  ]
+}

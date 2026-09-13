@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
+}
+
+html { scroll-behavior: smooth; scroll-padding-top: 88px; }
+body { @apply bg-white text-navy-900 antialiased; }
+
+@layer components {
+  .container-x { @apply mx-auto w-full max-w-7xl px-5 sm:px-8; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-solar; }
+  .btn-solar { @apply btn bg-solar text-white hover:bg-solar-600 shadow-lg shadow-solar/25; }
+  .btn-navy { @apply btn bg-navy text-white hover:bg-navy-700; }
+  .btn-ghost { @apply btn border border-white/30 text-white hover:bg-white/10; }
+  .eyebrow { @apply inline-flex items-center gap-2 rounded-full bg-solar/10 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-solar-600; }
+  .h2 { @apply text-3xl font-extrabold tracking-tight sm:text-4xl; }
+}
