@@ -82,7 +82,7 @@ export async function sendCustomerAutoReply(lead: LeadInput): Promise<void> {
       </div>
       <div style="background:#071634;padding:20px 28px;color:rgba(255,255,255,.6);font-size:12px;line-height:1.7">
         ${site.address.street}, ${site.address.city} – ${site.address.postalCode}, ${site.address.region}<br>
-        +91 ${site.phones[0]} · +91 ${site.phones[1]} · ${site.email}
+        ${site.phones.map((p) => `+91 ${p}`).join(' · ')} · ${site.email}
       </div>
     </div>
   </div>`;
@@ -119,7 +119,7 @@ export async function sendQuotationEmail(
       </div>
       <div style="background:#071634;padding:20px 28px;color:rgba(255,255,255,.6);font-size:12px;line-height:1.7">
         ${site.address.street}, ${site.address.city} – ${site.address.postalCode}, ${site.address.region}<br>
-        +91 ${site.phones[0]} · +91 ${site.phones[1]} · ${site.email}
+        ${site.phones.map((p) => `+91 ${p}`).join(' · ')} · ${site.email}
       </div>
     </div>
   </div>`;

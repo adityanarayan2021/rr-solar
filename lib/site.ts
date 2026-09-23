@@ -3,7 +3,9 @@ export const site = {
   tagline: 'Complete Solar Energy Partner',
   url: 'https://www.rrsolarsolutions.in',
   email: 'rrsolarsolutions2@gmail.com',
-  phones: ['9580446571', '6392585105'],
+  // Single point of truth for phone numbers. Everything that displays a number
+  // maps over this array, so adding a second one here brings it back everywhere.
+  phones: ['9580446571'],
   whatsapp: '919580446571',
   address: {
     street: 'Mayapuri, Atrauli Kursi Road',

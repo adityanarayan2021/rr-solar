@@ -81,7 +81,8 @@ function footer(page: PDFPage, f: Fonts) {
   text(page, `${site.address.street}, ${site.address.city} - ${site.address.postalCode}, ${site.address.region}`, M, 33, {
     font: f.regular, size: 7.5, color: rgb(0.72, 0.78, 0.87),
   });
-  text(page, `+91 ${site.phones[0]}  |  +91 ${site.phones[1]}  |  ${site.email}  |  www.rrsolarsolutions.in`, M, 20, {
+  const contactLine = `${site.phones.map((p) => `+91 ${p}`).join('  |  ')}  |  ${site.email}  |  www.rrsolarsolutions.in`;
+  text(page, contactLine, M, 20, {
     font: f.regular, size: 7.5, color: rgb(0.72, 0.78, 0.87),
   });
 }
