@@ -90,6 +90,7 @@ export async function updateLead(id: string, patch: Partial<LeadOps>): Promise<b
   if (patch.status && LEAD_STATUSES.includes(patch.status)) set.status = patch.status;
   if (typeof patch.notes === 'string') set.notes = patch.notes.slice(0, 4000);
   if (typeof patch.assignedTo === 'string') set.assignedTo = patch.assignedTo.slice(0, 120);
+  if (typeof patch.elecLoad === 'string') set.elecLoad = patch.elecLoad.slice(0, 40);
   if (typeof patch.visitDate === 'string') set.visitDate = patch.visitDate.slice(0, 40);
 
   for (const f of NUMERIC_FIELDS) {

@@ -6,7 +6,7 @@ const stats = [
   { value: '8', label: 'Solar Services' },
   { value: '24x7', label: 'Customer Support' },
   { value: '100%', label: 'Net Metering Support' },
-  { value: 'MNRE', label: 'Approved Partner' },
+  { value: 'MNRE + UPNEDA', label: 'Certified Partner' },
 ];
 
 export default function Hero() {
@@ -19,7 +19,7 @@ export default function Hero() {
         <div className="animate-fade-up">
           <span className="inline-flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-xs font-bold uppercase tracking-widest text-solar ring-1 ring-white/15">
             <Icon name="shield" className="h-4 w-4" />
-            MNRE Approved · Lucknow, Uttar Pradesh
+            {site.certificationLabel} · Lucknow, Uttar Pradesh
           </span>
 
           <h1 className="mt-6 text-4xl font-extrabold leading-[1.08] tracking-tight sm:text-5xl lg:text-[3.4rem]">

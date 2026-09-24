@@ -8,7 +8,7 @@ export default function Footer() {
         <div>
           <Logo light />
           <p className="mt-5 max-w-sm text-sm leading-relaxed">
-            MNRE-approved solar EPC based in Lucknow, delivering rooftop, commercial and industrial solar across Uttar
+            MNRE and UPNEDA certified solar EPC based in Lucknow, delivering rooftop, commercial and industrial solar across Uttar
             Pradesh.
           </p>
         </div>

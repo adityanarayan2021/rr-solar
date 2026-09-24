@@ -40,6 +40,7 @@ export type LeadOps = {
   quoteAmount?: number;   // quoted value in INR — drives pipeline and closed-value reporting
   visitDate?: string;     // ISO date of the site survey
   assignedTo?: string;    // technician or salesperson
+  elecLoad?: string;      // sanctioned electrical load, printed on the quotation
 };
 
 export type Lead = LeadInput & LeadOps & Attribution & {

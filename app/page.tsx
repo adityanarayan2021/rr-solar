@@ -24,7 +24,7 @@ const localBusiness = {
   '@id': `${site.url}#business`,
   name: site.name,
   description:
-    'MNRE-approved solar EPC company in Lucknow offering rooftop, residential, commercial and industrial solar installation, solar water pumps, street lights, net metering assistance and turnkey projects.',
+    'MNRE and UPNEDA certified solar EPC company in Lucknow offering rooftop, residential, commercial and industrial solar installation, solar water pumps, street lights, net metering assistance and turnkey projects.',
   slogan: site.tagline,
   url: site.url,
   email: site.email,

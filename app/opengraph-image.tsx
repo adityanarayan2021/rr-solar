@@ -23,7 +23,9 @@ export default function OgImage() {
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
           <div style={{ width: 56, height: 8, background: '#F5911E', borderRadius: 4 }} />
-          <div style={{ color: '#F5911E', fontSize: 24, fontWeight: 700, letterSpacing: 4 }}>MNRE APPROVED</div>
+          <div style={{ color: '#F5911E', fontSize: 24, fontWeight: 700, letterSpacing: 4 }}>
+            MNRE &amp; UPNEDA CERTIFIED
+          </div>
         </div>
 
         <div style={{ display: 'flex', fontSize: 82, fontWeight: 900, color: '#fff', marginTop: 28, letterSpacing: -2 }}>

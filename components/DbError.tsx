@@ -26,20 +26,24 @@ export default function DbError({ detail }: { detail?: string }) {
           )}
           {dns && (
             <li className="rounded-lg bg-amber-50 p-3 text-amber-900">
-              <p className="font-semibold">Your network is blocking MongoDB SRV DNS records.</p>
+              <p className="font-semibold">DNS lookup failed, and the HTTPS fallback didn&apos;t recover it.</p>
               <p className="mt-1.5 font-normal">
-                This is common on office and ISP networks. Nothing is wrong with your password or the cluster. Two ways
-                round it:
+                The app automatically retries blocked SRV lookups over DNS-over-HTTPS, so seeing this means something
+                beyond ordinary DNS filtering. Most likely one of:
               </p>
               <p className="mt-2 font-normal">
-                <strong>A.</strong> Add{' '}
-                <code className="rounded bg-white/60 px-1">MONGODB_DNS_SERVERS=&quot;1.1.1.1,8.8.8.8&quot;</code> to
-                .env.local and restart.
+                <strong>A.</strong> The cluster hostname in <code className="rounded bg-white/60 px-1">MONGODB_URI</code>{' '}
+                is wrong or the cluster was deleted.
               </p>
               <p className="mt-1.5 font-normal">
-                <strong>B.</strong> In Atlas use the non-SRV string: Connect → Drivers → set Driver version to
-                &quot;Node.js 2.2.12 or later&quot;. It starts <code className="rounded bg-white/60 px-1">mongodb://</code>{' '}
-                and needs no SRV lookup. This one survives office network policy.
+                <strong>B.</strong> Outbound HTTPS to <code className="rounded bg-white/60 px-1">cloudflare-dns.com</code>{' '}
+                and <code className="rounded bg-white/60 px-1">dns.google</code> is blocked too — unusual, but some
+                corporate proxies do it.
+              </p>
+              <p className="mt-1.5 font-normal">
+                <strong>C.</strong> Permanent workaround: in Atlas use Connect → Drivers → Driver version &quot;Node.js
+                2.2.12 or later&quot;, and paste that <code className="rounded bg-white/60 px-1">mongodb://</code> string
+                into MONGODB_URI. It needs no DNS lookup at all.
               </p>
             </li>
           )}

@@ -124,6 +124,27 @@ Images are served from `/api/media/<id>` with `immutable` cache headers — a ne
 
 **Homepage caching.** The page is ISR with `revalidate = 300`, and the projects API calls `revalidatePath('/')` on every change, so edits appear at once while the page stays static and fast. If the database is unreachable the gallery is skipped rather than taking the site down.
 
+## Database connection: blocked SRV DNS
+
+`mongodb+srv://` needs a DNS SRV lookup over UDP port 53. Many office networks, ISPs and corporate resolvers refuse it — you see `querySrv ECONNREFUSED` and the admin panel goes down, intermittently, depending on which network you're on.
+
+`lib/server/db.ts` handles this automatically:
+
+1. Try the normal connection.
+2. If it fails **specifically because of SRV resolution**, resolve `_mongodb._tcp.<cluster>` and the cluster's TXT record over **DNS-over-HTTPS** (Cloudflare, falling back to Google). DoH runs on port 443, so it works anywhere a browser works.
+3. Rebuild the plain `mongodb://` seed-list URI the driver would have built itself — shard hosts, ports, `replicaSet`, `authSource`, TLS — and connect with that.
+4. Cache the resolved URI so later connections skip the lookup entirely.
+
+Auth failures and timeouts are *not* retried this way — only genuine SRV failures — so a wrong password still fails fast with a clear message instead of being masked.
+
+`MONGODB_DNS_SERVERS` still works as a cheaper first attempt, but is now optional.
+
+## Adding your real logo
+
+Drop the file at **`public/logo.png`** (or `.jpg`). The quotation PDF picks it up automatically for both the letterhead and the watermark — no code change. Until then it draws a vector stand-in.
+
+Use a square-ish transparent PNG, around 400×400, for the cleanest result.
+
 ## PDF quotations
 
 Open a lead in `/admin`, fill in **system size (kW)** and **quote amount (₹)**, then either **Download PDF** or **Email to customer**. Emailing attaches the PDF via Resend and advances the lead to *Quoted* — but only after the email actually succeeds, so a send failure never leaves a lead falsely marked as quoted.

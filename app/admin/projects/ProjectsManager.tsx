@@ -2,6 +2,7 @@
 
 import { useRef, useState } from 'react';
 import AdminNav from '@/components/AdminNav';
+import Toast, { type ToastMessage } from '@/components/Toast';
 import { mediaUrl, type Project } from '@/lib/project-types';
 import { downscaleImage, kb } from '@/lib/image-resize';
 import { services } from '@/lib/site';
@@ -9,7 +10,7 @@ import { services } from '@/lib/site';
 export default function ProjectsManager({ initial }: { initial: Project[] }) {
   const [projects, setProjects] = useState(initial);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [toast, setToast] = useState<ToastMessage>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [sizeNote, setSizeNote] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -74,21 +75,7 @@ export default function ProjectsManager({ initial }: { initial: Project[] }) {
         subtitle={`${projects.length} project${projects.length === 1 ? '' : 's'} · ${projects.filter((p) => p.published).length} live on the website`}
       />
 
-      {toast && (
-        <div className="container-x pt-4">
-          <div
-            role="status"
-            className={`flex items-center justify-between gap-4 rounded-xl px-4 py-3 text-sm font-medium ${
-              toast.kind === 'ok' ? 'bg-leaf/10 text-leaf' : 'bg-red-50 text-red-600'
-            }`}
-          >
-            {toast.text}
-            <button onClick={() => setToast(null)} className="text-xs font-bold opacity-60 hover:opacity-100">
-              Dismiss
-            </button>
-          </div>
-        </div>
-      )}
+      <Toast message={toast} onDismiss={() => setToast(null)} />
 
       <div className="container-x grid gap-6 py-7 lg:grid-cols-[380px_1fr] lg:items-start">
         {/* ---------- Upload ---------- */}

@@ -10,7 +10,7 @@ export const metadata: Metadata = {
     template: '%s | RR Solar Solutions',
   },
   description:
-    'MNRE-approved solar company in Lucknow. Rooftop, residential, commercial and industrial solar, solar water pumps, street lights, net metering assistance and EPC turnkey projects. Free site survey and subsidy support.',
+    'MNRE and UPNEDA certified solar company in Lucknow. Rooftop, residential, commercial and industrial solar, solar water pumps, street lights, net metering assistance and EPC turnkey projects. Free site survey and subsidy support.',
   applicationName: site.name,
   keywords: [
     'solar panel installation Lucknow',
@@ -31,12 +31,12 @@ export const metadata: Metadata = {
     siteName: site.name,
     title: 'RR Solar Solutions | Complete Solar Energy Partner, Lucknow',
     description:
-      'MNRE-approved rooftop and industrial solar in Lucknow. Free site survey, transparent pricing, full net-metering and subsidy support.',
+      'MNRE and UPNEDA certified rooftop and industrial solar in Lucknow. Free site survey, transparent pricing, full net-metering and subsidy support.',
   },
   twitter: {
     card: 'summary_large_image',
     title: 'RR Solar Solutions | Solar Installation in Lucknow',
-    description: 'MNRE-approved solar EPC. Free site survey, subsidy and net-metering handled end to end.',
+    description: 'MNRE and UPNEDA certified solar EPC. Free site survey, subsidy and net-metering handled end to end.',
   },
   robots: {
     index: true,

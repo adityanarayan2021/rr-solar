@@ -97,3 +97,106 @@ export function quotationNumber(leadId: string, date = new Date()): string {
   const md = `${String(date.getMonth() + 1).padStart(2, '0')}${String(date.getDate()).padStart(2, '0')}`;
   return `RRS/${y}/${md}/${leadId.slice(-4).toUpperCase()}`;
 }
+
+/* ------------------------------------------------------------------ */
+/* Amount in words — Indian numbering (lakh / crore, not million)      */
+/* ------------------------------------------------------------------ */
+
+const ONES = [
+  '', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten',
+  'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen',
+];
+const TENS = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
+
+function twoDigits(n: number): string {
+  if (n < 20) return ONES[n];
+  const t = TENS[Math.floor(n / 10)];
+  const o = ONES[n % 10];
+  return o ? `${t} ${o}` : t;
+}
+
+/**
+ * "Two Lakh Ten Thousand Rupees Only" — the Indian grouping a customer expects
+ * on a quotation, not the Western million/billion scale.
+ */
+export function amountInWords(amount: number): string {
+  const n = Math.round(Math.abs(amount || 0));
+  if (n === 0) return 'Zero Rupees Only';
+
+  const crore = Math.floor(n / 10000000);
+  const lakh = Math.floor((n % 10000000) / 100000);
+  const thousand = Math.floor((n % 100000) / 1000);
+  const hundred = Math.floor((n % 1000) / 100);
+  const rest = n % 100;
+
+  const parts: string[] = [];
+  if (crore) parts.push(`${twoDigits(crore)} Crore`);
+  if (lakh) parts.push(`${twoDigits(lakh)} Lakh`);
+  if (thousand) parts.push(`${twoDigits(thousand)} Thousand`);
+  if (hundred) parts.push(`${ONES[hundred]} Hundred`);
+  if (rest) parts.push(twoDigits(rest));
+
+  return `${parts.join(' ')} Rupees Only`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Bill of materials                                                   */
+/* ------------------------------------------------------------------ */
+
+/** Component specs. Edit these once and every future quotation follows. */
+export const BOM_DEFAULTS = {
+  panelWattage: 545,
+  panelMake: 'UTL / Loom bifacial',
+  inverterMake: 'Loom',
+  wireMakes: 'Polycab / Havells / KEI',
+  earthingRods: 3,
+  moduleWarrantyYears: 30,
+  inverterWarrantyYears: 5,
+  installationDays: 10,
+  cancellationCharge: 5000,
+  advancePercent: 30,
+} as const;
+
+export type BomLine = { label: string; qty?: string };
+
+/**
+ * Default component list for a given system size. Panel count and inverter
+ * rating are derived from kW; everything else is standard scope.
+ *
+ * This is a starting point the team can edit per quotation, not a fixed list.
+ */
+export function defaultBom(systemKw: number, phase: '1 phase' | '3 phase' = '1 phase'): BomLine[] {
+  const kw = Math.max(systemKw, 0);
+  const panels = kw > 0 ? Math.ceil((kw * 1000) / BOM_DEFAULTS.panelWattage) : 0;
+  // Inverters are sold in whole-kW steps and are commonly sized at or just
+  // above array size, so round up rather than matching kW exactly.
+  const inverterKw = Math.max(Math.ceil(kw), 1);
+
+  return [
+    { label: `${BOM_DEFAULTS.panelMake} panel ${BOM_DEFAULTS.panelWattage} to 555 Wp`, qty: panels ? `${String(panels).padStart(2, '0')} Nos.` : '' },
+    { label: `On-Grid ${BOM_DEFAULTS.inverterMake} inverter ${inverterKw} kW (${phase})`, qty: '1 No.' },
+    { label: 'Solar GI structure, front leg height as per site requirement', qty: '1 Set' },
+    { label: `AC wire and DC wire — ${BOM_DEFAULTS.wireMakes} (4 sq mm)` },
+    { label: 'Earthing wire — CCA wire 4 sq mm' },
+    { label: 'Earthing rod, 3 metre copper bonded', qty: `${String(BOM_DEFAULTS.earthingRods).padStart(2, '0')} Nos.` },
+    { label: 'Lightning arrester, copper bonded', qty: '1 No.' },
+    { label: `Net meter (${phase}) as per DISCOM`, qty: '1 No.' },
+    { label: 'Assistance in availing net metering from DISCOM' },
+    { label: 'Subsidy filing as per UPNEDA guidelines' },
+  ];
+}
+
+/** Terms printed on every quotation. Numbered in the PDF. */
+export function standardTerms(totalAmount: number): string[] {
+  const advance = Math.round((totalAmount * BOM_DEFAULTS.advancePercent) / 100);
+  return [
+    `Payment terms: ${BOM_DEFAULTS.advancePercent}% as advance at the time of booking (${rs(advance)}), balance ${
+      100 - BOM_DEFAULTS.advancePercent
+    }% before dispatch of material (modules and inverter).`,
+    `Solar system installation: ${BOM_DEFAULTS.installationDays} days from 100% payment, subject to availability of material and site clearance.`,
+    'Net metering: as per DISCOM guidelines and procedure.',
+    'Subsidy amount as per prevailing government policy, reimbursed directly into the customer’s account.',
+    `Warranties: solar PV module ${BOM_DEFAULTS.moduleWarrantyYears} years by manufacturer; solar inverter ${BOM_DEFAULTS.inverterWarrantyYears} years by manufacturer.`,
+    `Order cancellation charges: ${rs(BOM_DEFAULTS.cancellationCharge)}.`,
+  ];
+}

@@ -42,7 +42,7 @@ export default function Header() {
             </a>
             <span className="flex items-center gap-2 font-semibold text-white">
               <Icon name="shield" className="h-3.5 w-3.5 text-leaf" />
-              MNRE Approved
+              {site.certificationLabel}
             </span>
           </span>
         </div>

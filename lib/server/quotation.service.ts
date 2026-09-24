@@ -1,99 +1,213 @@
-import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
-import { ASSUMPTIONS, calculateQuotation, quotationNumber, rs, type QuotationMaths } from '../quotation';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { PDFDocument, StandardFonts, degrees, rgb, type PDFFont, type PDFPage, type PDFImage } from 'pdf-lib';
+import {
+  amountInWords,
+  calculateQuotation,
+  defaultBom,
+  quotationNumber,
+  rs,
+  standardTerms,
+  type BomLine,
+} from '../quotation';
 import { site } from '../site';
+import { logger } from './logger';
 import type { Lead } from '../lead-types';
+
+/* ------------------------------------------------------------------ */
+/* Palette and page geometry                                           */
+/* ------------------------------------------------------------------ */
 
 const NAVY = rgb(0.055, 0.165, 0.361);
 const SOLAR = rgb(0.961, 0.569, 0.118);
-const LEAF = rgb(0.180, 0.620, 0.310);
-const GREY = rgb(0.42, 0.45, 0.5);
-const LIGHT = rgb(0.945, 0.957, 0.976);
+const GREY = rgb(0.35, 0.38, 0.43);
+const LINE = rgb(0.0, 0.0, 0.0);
 const WHITE = rgb(1, 1, 1);
 
 const A4 = { w: 595.28, h: 841.89 };
-const M = 46; // page margin
+const M = 26;                        // outer page margin
+const BOX = { x: M + 8, w: A4.w - (M + 8) * 2 };
 
-type Fonts = { regular: PDFFont; bold: PDFFont };
+type Fonts = { regular: PDFFont; bold: PDFFont; italic: PDFFont; boldItalic: PDFFont };
+
+/* ------------------------------------------------------------------ */
+/* Small drawing helpers                                               */
+/* ------------------------------------------------------------------ */
 
 function text(
   page: PDFPage,
   str: string,
   x: number,
   y: number,
-  opts: { font: PDFFont; size?: number; color?: ReturnType<typeof rgb> } ,
+  o: { font: PDFFont; size?: number; color?: ReturnType<typeof rgb> },
 ) {
-  page.drawText(str, { x, y, size: opts.size ?? 10, font: opts.font, color: opts.color ?? NAVY });
+  page.drawText(str, { x, y, size: o.size ?? 9, font: o.font, color: o.color ?? NAVY });
 }
 
-function rightText(page: PDFPage, str: string, right: number, y: number, o: { font: PDFFont; size?: number; color?: ReturnType<typeof rgb> }) {
-  const size = o.size ?? 10;
-  const w = o.font.widthOfTextAtSize(str, size);
-  text(page, str, right - w, y, { ...o, size });
+function centred(page: PDFPage, str: string, cx: number, y: number, o: { font: PDFFont; size?: number; color?: ReturnType<typeof rgb> }) {
+  const size = o.size ?? 9;
+  text(page, str, cx - o.font.widthOfTextAtSize(str, size) / 2, y, { ...o, size });
 }
 
-/** Naive word wrap — adequate for the short paragraphs on this document. */
+function rightAlign(page: PDFPage, str: string, right: number, y: number, o: { font: PDFFont; size?: number; color?: ReturnType<typeof rgb> }) {
+  const size = o.size ?? 9;
+  text(page, str, right - o.font.widthOfTextAtSize(str, size), y, { ...o, size });
+}
+
+function box(page: PDFPage, x: number, y: number, w: number, h: number, thickness = 0.9) {
+  page.drawRectangle({ x, y, width: w, height: h, borderColor: LINE, borderWidth: thickness });
+}
+
+/** Greedy word wrap. Returns the lines; callers decide spacing. */
 function wrap(str: string, font: PDFFont, size: number, maxWidth: number): string[] {
-  const words = str.split(' ');
-  const lines: string[] = [];
+  const out: string[] = [];
   let line = '';
-  for (const w of words) {
-    const test = line ? `${line} ${w}` : w;
+  for (const word of str.split(' ')) {
+    const test = line ? `${line} ${word}` : word;
     if (font.widthOfTextAtSize(test, size) > maxWidth && line) {
-      lines.push(line);
-      line = w;
-    } else line = test;
+      out.push(line);
+      line = word;
+    } else {
+      line = test;
+    }
   }
-  if (line) lines.push(line);
-  return lines;
+  if (line) out.push(line);
+  return out;
 }
 
-function header(page: PDFPage, f: Fonts, quoteNo: string) {
-  page.drawRectangle({ x: 0, y: A4.h - 118, width: A4.w, height: 118, color: NAVY });
+/* ------------------------------------------------------------------ */
+/* Logo                                                                */
+/* ------------------------------------------------------------------ */
 
-  // Chain the x positions off measured widths — fixed offsets collide as soon as
-  // the font or size changes.
-  const logoSize = 22;
-  const parts: [string, ReturnType<typeof rgb>][] = [
-    ['R R ', WHITE],
-    ['SOLAR ', SOLAR],
-    ['SOLUTIONS', WHITE],
+/**
+ * Loads public/logo.png (or .jpg) if it exists, so dropping the real artwork
+ * into that folder replaces the drawn fallback everywhere — header and
+ * watermark — with no code change.
+ */
+async function loadLogo(doc: PDFDocument): Promise<PDFImage | null> {
+  for (const file of ['logo.png', 'logo.jpg', 'logo.jpeg']) {
+    try {
+      const bytes = await fs.readFile(path.join(process.cwd(), 'public', file));
+      return file.endsWith('.png') ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+    } catch {
+      // try the next candidate
+    }
+  }
+  return null;
+}
+
+const PANEL_BLUE = rgb(0.106, 0.298, 0.607);
+const LEAF_GREEN = rgb(0.18, 0.62, 0.31);
+
+/**
+ * Vector stand-in for the brand mark, used until public/logo.png exists:
+ * a fan of sun rays arcing over a bold "RR", with a tilted solar panel and a
+ * leaf beneath. Drawn in a 64x64 space and scaled, so one `size` controls it.
+ */
+function drawVectorLogo(page: PDFPage, f: Fonts, x: number, y: number, size: number, opacity = 1) {
+  const s = size / 64;
+  const cx = x + size / 2;
+  const px = (v: number) => cx + v * s;
+  const py = (v: number) => y + v * s;
+
+  // --- sun: a fan of rays radiating from behind the letters ---
+  const sunCx = 0;
+  const sunCy = 44;
+  for (let i = 0; i < 9; i++) {
+    const angle = Math.PI * (0.08 + (i / 8) * 0.84); // left to right across the top
+    const inner = 13;
+    const outer = 19;
+    page.drawLine({
+      start: { x: px(sunCx + Math.cos(angle) * inner), y: py(sunCy + Math.sin(angle) * inner) },
+      end: { x: px(sunCx + Math.cos(angle) * outer), y: py(sunCy + Math.sin(angle) * outer) },
+      thickness: 2.2 * s,
+      color: SOLAR,
+      opacity,
+    });
+  }
+  // sun disc arc sitting behind the wordmark
+  page.drawCircle({ x: px(sunCx), y: py(sunCy), size: 10.5 * s, color: SOLAR, opacity: opacity * 0.9 });
+
+  // --- RR wordmark: first letter navy, second orange, as in the brand ---
+  const letterSize = 26 * s;
+  const r1 = 'R';
+  const r2 = 'R';
+  const w1 = f.bold.widthOfTextAtSize(r1, letterSize);
+  const w2 = f.bold.widthOfTextAtSize(r2, letterSize);
+  const startX = px(0) - (w1 + w2) / 2;
+  page.drawText(r1, { x: startX, y: py(26), size: letterSize, font: f.bold, color: NAVY, opacity });
+  page.drawText(r2, { x: startX + w1, y: py(26), size: letterSize, font: f.bold, color: SOLAR, opacity });
+
+  // --- tilted solar panel ---
+  const panel = [
+    { x: px(-21), y: py(16) },
+    { x: px(3), y: py(16) },
+    { x: px(9), y: py(4) },
+    { x: px(-15), y: py(4) },
   ];
-  let lx = M;
-  for (const [part, color] of parts) {
-    text(page, part, lx, A4.h - 52, { font: f.bold, size: logoSize, color });
-    lx += f.bold.widthOfTextAtSize(part, logoSize);
+  page.drawSvgPath(
+    `M ${panel[0].x} ${-panel[0].y} L ${panel[1].x} ${-panel[1].y} L ${panel[2].x} ${-panel[2].y} L ${panel[3].x} ${-panel[3].y} Z`,
+    { x: 0, y: 0, color: PANEL_BLUE, opacity: opacity * 0.95 },
+  );
+  // cell divisions
+  for (let i = 1; i <= 2; i++) {
+    const t = i / 3;
+    page.drawLine({
+      start: { x: px(-21 + 24 * t), y: py(16) },
+      end: { x: px(-15 + 24 * t), y: py(4) },
+      thickness: 0.7 * s, color: WHITE, opacity,
+    });
   }
-  text(page, 'COMPLETE SOLAR ENERGY PARTNER', M, A4.h - 68, { font: f.regular, size: 7.5, color: rgb(0.7, 0.76, 0.86) });
-  text(page, 'MNRE Approved  |  Net Metering Assistance', M, A4.h - 88, { font: f.regular, size: 8, color: rgb(0.7, 0.76, 0.86) });
-
-  rightText(page, 'QUOTATION', A4.w - M, A4.h - 46, { font: f.bold, size: 15, color: SOLAR });
-  rightText(page, quoteNo, A4.w - M, A4.h - 62, { font: f.regular, size: 8.5, color: WHITE });
-  rightText(page, new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }), A4.w - M, A4.h - 76, {
-    font: f.regular, size: 8.5, color: rgb(0.7, 0.76, 0.86),
+  page.drawLine({
+    start: { x: px(-18), y: py(10) }, end: { x: px(6), y: py(10) },
+    thickness: 0.7 * s, color: WHITE, opacity,
   });
-  rightText(page, `+91 ${site.phones[0]}  |  ${site.email}`, A4.w - M, A4.h - 96, {
-    font: f.regular, size: 7.5, color: rgb(0.7, 0.76, 0.86),
+
+  // --- leaf ---
+  page.drawSvgPath(
+    `M ${px(11)} ${-py(14)} C ${px(20)} ${-py(17)} ${px(24)} ${-py(11)} ${px(21)} ${-py(4)} C ${px(14)} ${-py(6)} ${px(10)} ${-py(9)} ${px(11)} ${-py(14)} Z`,
+    { x: 0, y: 0, color: LEAF_GREEN, opacity },
+  );
+}
+
+/**
+ * Diagonal watermark. Drawn first so every element that follows sits on top of
+ * it — pdf-lib has no z-index, painting order is the only control.
+ */
+function drawWatermark(page: PDFPage, f: Fonts, logo: PDFImage | null) {
+  const cx = A4.w / 2;
+  const cy = A4.h / 2;
+
+  // Deliberately very faint. A watermark that competes with the table makes the
+  // quotation harder to read, which defeats the point of the document — it
+  // should register as a background texture, not as content.
+  const MARK = 0.03;
+  const WORD = 0.035;
+
+  if (logo) {
+    const w = 240;
+    const h = (logo.height / logo.width) * w;
+    page.drawImage(logo, { x: cx - w / 2, y: cy - h / 2, width: w, height: h, opacity: MARK });
+  } else {
+    drawVectorLogo(page, f, cx - 55, cy - 45, 110, MARK);
+  }
+
+  page.drawText('RR SOLAR', {
+    x: cx - 190, y: cy - 132, size: 62, font: f.bold,
+    color: SOLAR, opacity: WORD, rotate: degrees(0),
+  });
+  page.drawText('SOLUTIONS & EARTHING SYSTEMS', {
+    x: cx - 188, y: cy - 158, size: 18.7, font: f.bold,
+    color: NAVY, opacity: WORD * 0.85,
   });
 }
 
-function footer(page: PDFPage, f: Fonts) {
-  page.drawRectangle({ x: 0, y: 0, width: A4.w, height: 54, color: NAVY });
-  text(page, `${site.address.street}, ${site.address.city} - ${site.address.postalCode}, ${site.address.region}`, M, 33, {
-    font: f.regular, size: 7.5, color: rgb(0.72, 0.78, 0.87),
-  });
-  const contactLine = `${site.phones.map((p) => `+91 ${p}`).join('  |  ')}  |  ${site.email}  |  www.rrsolarsolutions.in`;
-  text(page, contactLine, M, 20, {
-    font: f.regular, size: 7.5, color: rgb(0.72, 0.78, 0.87),
-  });
-}
-
-function sectionTitle(page: PDFPage, f: Fonts, label: string, y: number) {
-  page.drawRectangle({ x: M, y: y - 3, width: 3, height: 12, color: SOLAR });
-  text(page, label.toUpperCase(), M + 10, y, { font: f.bold, size: 9.5, color: NAVY });
-}
+/* ------------------------------------------------------------------ */
+/* Document                                                            */
+/* ------------------------------------------------------------------ */
 
 export async function buildQuotationPdf(lead: Lead, opts: { applySubsidy: boolean }): Promise<Uint8Array> {
-  const q: QuotationMaths = calculateQuotation({
+  const q = calculateQuotation({
     systemKw: lead.systemKw ?? 0,
     totalAmount: lead.quoteAmount ?? 0,
     applySubsidy: opts.applySubsidy,
@@ -101,139 +215,246 @@ export async function buildQuotationPdf(lead: Lead, opts: { applySubsidy: boolea
 
   const doc = await PDFDocument.create();
   doc.setTitle(`Quotation - ${lead.name}`);
-  doc.setAuthor(site.name);
+  doc.setAuthor(site.legalName);
+  doc.setSubject('Solar power plant quotation');
 
   const f: Fonts = {
     regular: await doc.embedFont(StandardFonts.Helvetica),
     bold: await doc.embedFont(StandardFonts.HelveticaBold),
+    italic: await doc.embedFont(StandardFonts.HelveticaOblique),
+    boldItalic: await doc.embedFont(StandardFonts.HelveticaBoldOblique),
   };
 
   const page = doc.addPage([A4.w, A4.h]);
-  const quoteNo = quotationNumber(lead.id);
-  header(page, f, quoteNo);
+  const logo = await loadLogo(doc);
 
-  let y = A4.h - 152;
+  // 1. Watermark first — everything else paints over it.
+  drawWatermark(page, f, logo);
 
-  // ---- Customer ----
-  sectionTitle(page, f, 'Prepared for', y);
-  y -= 18;
-  text(page, lead.name, M + 10, y, { font: f.bold, size: 12 });
-  y -= 14;
-  const lines = [
-    `Mobile: +91 ${lead.phone}`,
-    lead.email ? `Email: ${lead.email}` : '',
-    lead.city ? `Location: ${lead.city}` : '',
-    lead.service ? `Requirement: ${lead.service}` : '',
-  ].filter(Boolean);
-  for (const l of lines) {
-    text(page, l, M + 10, y, { font: f.regular, size: 9, color: GREY });
-    y -= 12.5;
+  // 2. Page border
+  box(page, M, M, A4.w - M * 2, A4.h - M * 2, 1.1);
+
+  let y = A4.h - M - 18;
+
+  /* ---------- Letterhead ---------- */
+  const logoSize = 52;
+  if (logo) {
+    const w = logoSize;
+    const h = (logo.height / logo.width) * w;
+    page.drawImage(logo, { x: BOX.x, y: y - h + 6, width: w, height: h });
+  } else {
+    drawVectorLogo(page, f, BOX.x, y - logoSize + 8, logoSize);
   }
 
-  // ---- System summary band ----
-  y -= 10;
-  page.drawRectangle({ x: M, y: y - 46, width: A4.w - M * 2, height: 54, color: LIGHT });
-  const cellW = (A4.w - M * 2) / 3;
-  const cells: [string, string][] = [
-    ['SYSTEM SIZE', `${q.systemKw} kW`],
-    ['EST. ANNUAL GENERATION', `${q.annualUnits.toLocaleString('en-IN')} units`],
-    ['EST. MONTHLY SAVING', rs(q.monthlySavings)],
+  // "RR SOLAR SOLUTIONS" with SOLAR in orange, then the suffix — widths are
+  // measured and chained so the words never collide.
+  const brandSize = 26;
+  let bx = BOX.x + logoSize + 16;
+  const brandY = y - 26;
+  for (const [word, colour] of [['RR ', NAVY], ['SOLAR ', SOLAR], ['SOLUTIONS', NAVY]] as const) {
+    text(page, word, bx, brandY, { font: f.bold, size: brandSize, color: colour });
+    bx += f.bold.widthOfTextAtSize(word, brandSize);
+  }
+  text(page, ' & EARTHING SYSTEMS', bx, brandY + 2, { font: f.bold, size: 9, color: NAVY });
+
+  // Certification strip — small pills, so the accreditations read as badges
+  // rather than as part of the company name.
+  let cx2 = BOX.x + logoSize + 18;
+  const pillY = brandY - 15;
+  for (const cert of site.certifications) {
+    const label = `${cert} CERTIFIED`;
+    const w = f.bold.widthOfTextAtSize(label, 6.5) + 12;
+    page.drawRectangle({
+      x: cx2, y: pillY - 3, width: w, height: 12,
+      color: NAVY, opacity: 0.08,
+      borderColor: NAVY, borderWidth: 0.4, borderOpacity: 0.35,
+    });
+    text(page, label, cx2 + 6, pillY, { font: f.bold, size: 6.5, color: NAVY });
+    cx2 += w + 6;
+  }
+  text(page, '|  Net Metering Assistance', cx2 + 2, pillY, { font: f.regular, size: 6.5, color: GREY });
+
+  y -= logoSize + 6;
+
+  /* ---------- Seller box ---------- */
+  const sellerH = 30;
+  box(page, BOX.x, y - sellerH, BOX.w, sellerH);
+  text(page, 'Seller:', BOX.x + 6, y - 12, { font: f.bold, size: 8.5 });
+  text(page, site.legalName, BOX.x + 36, y - 12, { font: f.regular, size: 8.5 });
+  rightAlign(page, `Mob: ${site.phones[0]}`, BOX.x + BOX.w - 8, y - 12, { font: f.bold, size: 8.5 });
+  text(page, `Email id – ${site.email}`, BOX.x + 6, y - 23, { font: f.regular, size: 8.5 });
+  y -= sellerH;
+
+  /* ---------- Buyer box (two columns) ---------- */
+  const buyerH = 46;
+  const mid = BOX.x + BOX.w / 2;
+  box(page, BOX.x, y - buyerH, BOX.w, buyerH);
+  page.drawLine({ start: { x: mid, y }, end: { x: mid, y: y - buyerH }, thickness: 0.9, color: LINE });
+
+  const leftRows: [string, string][] = [
+    ['Buyer Name:', lead.name],
+    ['Elec. Load:', lead.elecLoad?.trim() || '—'],
+    ['Date:', new Date().toLocaleDateString('en-GB')],
   ];
-  cells.forEach(([label, value], i) => {
-    const cx = M + cellW * i + 14;
-    text(page, label, cx, y - 14, { font: f.regular, size: 7, color: GREY });
-    text(page, value, cx, y - 32, { font: f.bold, size: 13, color: NAVY });
+  const rightRows: [string, string][] = [
+    ['Address:', lead.city || '—'],
+    ['Mail Id:', lead.email || '—'],
+    ['Mobile No:', lead.phone],
+  ];
+  leftRows.forEach(([k, v], i) => {
+    const ry = y - 13 - i * 14;
+    text(page, k, BOX.x + 6, ry, { font: f.bold, size: 8.5 });
+    text(page, v, BOX.x + 74, ry, { font: f.regular, size: 8.5 });
   });
-  y -= 70;
-
-  // ---- Pricing ----
-  sectionTitle(page, f, 'Commercial offer', y);
-  y -= 22;
-
-  const rowsY: number[] = [];
-  const priceRow = (label: string, value: string, bold = false, color = NAVY) => {
-    text(page, label, M + 10, y, { font: bold ? f.bold : f.regular, size: 10, color });
-    rightText(page, value, A4.w - M - 10, y, { font: bold ? f.bold : f.regular, size: 10, color });
-    rowsY.push(y);
-    y -= 20;
-  };
-
-  priceRow(`Supply & installation — ${q.systemKw} kW solar power plant`, rs(q.totalAmount));
-  text(page, `(approx. ${rs(q.ratePerKw)} per kW, inclusive of structure, cabling, safety gear and commissioning)`, M + 10, y + 8, {
-    font: f.regular, size: 7.5, color: GREY,
+  rightRows.forEach(([k, v], i) => {
+    const ry = y - 13 - i * 14;
+    text(page, k, mid + 6, ry, { font: f.bold, size: 8.5 });
+    text(page, v, mid + 64, ry, { font: f.regular, size: 8.5 });
   });
+  y -= buyerH + 14;
+
+  /* ---------- Greeting ---------- */
+  text(page, 'Dear Sir,', BOX.x + 2, y, { font: f.bold, size: 9 });
+  y -= 14;
+
+  const intro =
+    'We thank you for the kind interest shown in the installation of a Hybrid / On-grid / Off-grid rooftop solar plant at your premises. In line with our discussion, our offer is as follows:';
+  for (const line of wrap(intro, f.regular, 8.5, BOX.w - 8)) {
+    text(page, line, BOX.x + 2, y, { font: f.regular, size: 8.5, color: GREY });
+    y -= 11;
+  }
   y -= 8;
 
-  if (q.subsidy > 0) {
-    priceRow('Less: PM Surya Ghar central subsidy', `- ${rs(q.subsidy)}`, false, LEAF);
-  }
+  /* ---------- Items table ---------- */
+  const COL = {
+    sr: BOX.x,
+    srW: 34,
+    partW: BOX.w - 34 - 54 - 150,
+    qtyW: 54,
+    amtW: 150,
+  };
+  const partX = COL.sr + COL.srW;
+  const qtyX = partX + COL.partW;
+  const amtX = qtyX + COL.qtyW;
 
-  page.drawLine({ start: { x: M + 10, y: y + 12 }, end: { x: A4.w - M - 10, y: y + 12 }, thickness: 0.8, color: rgb(0.85, 0.87, 0.9) });
-  y -= 6;
-  page.drawRectangle({ x: M, y: y - 8, width: A4.w - M * 2, height: 28, color: NAVY });
-  text(page, q.subsidy > 0 ? 'NET COST AFTER SUBSIDY' : 'TOTAL PAYABLE', M + 10, y + 2, { font: f.bold, size: 10.5, color: WHITE });
-  rightText(page, rs(q.netCost), A4.w - M - 10, y + 2, { font: f.bold, size: 12.5, color: SOLAR });
-  y -= 34;
+  // header row
+  const headH = 22;
+  page.drawRectangle({ x: COL.sr, y: y - headH, width: BOX.w, height: headH, color: NAVY });
+  centred(page, 'SR. NO.', COL.sr + COL.srW / 2, y - 14, { font: f.bold, size: 7.5, color: WHITE });
+  centred(page, 'PARTICULAR', partX + COL.partW / 2, y - 14, { font: f.bold, size: 7.5, color: WHITE });
+  centred(page, 'QTY.', qtyX + COL.qtyW / 2, y - 14, { font: f.bold, size: 7.5, color: WHITE });
+  centred(page, 'AMOUNT TO BE PAID', amtX + COL.amtW / 2, y - 14, { font: f.bold, size: 7.5, color: WHITE });
+  y -= headH;
 
-  if (q.subsidy > 0) {
-    const note = 'Note: the central subsidy is paid directly into your bank account by the government after the system is commissioned and inspected by the discom. It is not an upfront discount — the full amount is payable to us at the agreed milestones.';
-    for (const l of wrap(note, f.regular, 7.8, A4.w - M * 2 - 16)) {
-      text(page, l, M + 8, y, { font: f.regular, size: 7.8, color: GREY });
-      y -= 10;
+  // body
+  const bom: BomLine[] = defaultBom(q.systemKw);
+  const rowTop = y;
+  let ry = y - 16;
+
+  text(page, `On-grid power generating system ${q.systemKw} kW`, partX + 6, ry, { font: f.bold, size: 9 });
+  ry -= 15;
+
+  for (const item of bom) {
+    const lines = wrap(item.label, f.regular, 8.2, COL.partW - 14);
+    lines.forEach((l, i) => {
+      text(page, l, partX + 6, ry - i * 10.5, { font: f.regular, size: 8.2, color: GREY });
+    });
+    if (item.qty) {
+      centred(page, item.qty, qtyX + COL.qtyW / 2, ry, { font: f.bold, size: 8.2 });
     }
-    y -= 6;
+    ry -= lines.length * 10.5 + 3.5;
   }
 
-  // ---- Savings ----
-  sectionTitle(page, f, 'Estimated returns', y);
-  y -= 20;
-  const savingsRows: [string, string][] = [
-    ['Estimated annual generation', `${q.annualUnits.toLocaleString('en-IN')} units`],
-    ['Estimated annual saving', rs(q.annualSavings)],
-    ['Estimated payback period', q.paybackYears ? `${q.paybackYears} years` : '—'],
-    ['Estimated 25-year generation', `${q.lifetimeUnits.toLocaleString('en-IN')} units`],
-  ];
-  savingsRows.forEach(([k, v], i) => {
-    if (i % 2 === 0) page.drawRectangle({ x: M, y: y - 5, width: A4.w - M * 2, height: 18, color: LIGHT });
-    text(page, k, M + 10, y, { font: f.regular, size: 9, color: GREY });
-    rightText(page, v, A4.w - M - 10, y, { font: f.bold, size: 9.5, color: NAVY });
-    y -= 18;
+  const bodyH = rowTop - ry + 6;
+
+  // SR number, vertically centred against the whole block. No separate "1 Set"
+  // here — the structure line already carries it, and a second one collided
+  // with the per-item quantities.
+  centred(page, '1.', COL.sr + COL.srW / 2, rowTop - bodyH / 2, { font: f.bold, size: 9 });
+
+  // amount, in figures and in words
+  const amtCx = amtX + COL.amtW / 2;
+  const amtY = rowTop - bodyH / 2 + 14;
+  centred(page, `${rs(q.totalAmount)}/-`, amtCx, amtY, { font: f.bold, size: 10.5 });
+  wrap(amountInWords(q.totalAmount), f.regular, 8, COL.amtW - 14).forEach((l, i) => {
+    centred(page, l, amtCx, amtY - 14 - i * 10, { font: f.regular, size: 8, color: GREY });
   });
 
-  y -= 6;
-  const assume = `Estimates assume ${ASSUMPTIONS.yieldPerKwpPerYear} units per kW per year and a tariff of Rs. ${ASSUMPTIONS.tariffPerUnit} per unit. Actual generation varies with shading, orientation, weather and cleaning. These figures are indicative, not a guarantee.`;
-  for (const l of wrap(assume, f.regular, 7.5, A4.w - M * 2 - 16)) {
-    text(page, l, M + 8, y, { font: f.regular, size: 7.5, color: GREY });
-    y -= 9.5;
+  // column separators and the row outline
+  box(page, COL.sr, rowTop - bodyH, BOX.w, bodyH);
+  for (const x of [partX, qtyX, amtX]) {
+    page.drawLine({ start: { x, y: rowTop }, end: { x, y: rowTop - bodyH }, thickness: 0.9, color: LINE });
   }
+  y = rowTop - bodyH;
 
-  // ---- Scope & terms ----
+  /* ---------- Bank row ---------- */
+  const bankH = 26;
+  box(page, COL.sr, y - bankH, BOX.w, bankH);
+  centred(page, `All payments to: ${site.bank.accountName}`, A4.w / 2, y - 11, { font: f.bold, size: 8.2 });
+  centred(
+    page,
+    `Bank IFSC Code: ${site.bank.ifsc}  |  ${site.bank.accountType} No.: ${site.bank.accountNumber}`,
+    A4.w / 2,
+    y - 21,
+    { font: f.bold, size: 8.2 },
+  );
+  y -= bankH + 16;
+
+  /* ---------- Terms ---------- */
+  text(page, 'Terms and Conditions:', BOX.x + 2, y, { font: f.bold, size: 9 });
+  page.drawLine({
+    start: { x: BOX.x + 2, y: y - 2.5 },
+    end: { x: BOX.x + 2 + f.bold.widthOfTextAtSize('Terms and Conditions:', 9), y: y - 2.5 },
+    thickness: 0.7, color: LINE,
+  });
   y -= 14;
-  sectionTitle(page, f, 'Scope & terms', y);
-  y -= 18;
-  const terms = [
-    'Supply of solar modules, inverter, mounting structure, cabling, earthing and protection devices.',
-    'Complete installation, testing and commissioning by our in-house certified team.',
-    'Net-metering liaison with the discom: application, feasibility, inspection and meter installation.',
-    'Assistance with the PM Surya Ghar subsidy application for eligible residential customers.',
-    'Manufacturer warranties apply to modules and inverter; workmanship warranty provided by us.',
-    'This quotation is valid for 15 days from the date above and is subject to a final site survey.',
-  ];
-  for (const t of terms) {
-    page.drawCircle({ x: M + 13, y: y + 3, size: 1.8, color: SOLAR });
-    for (const [i, l] of wrap(t, f.regular, 8.5, A4.w - M * 2 - 30).entries()) {
-      text(page, l, M + 22, y - i * 10.5, { font: f.regular, size: 8.5, color: GREY });
-    }
-    y -= 10.5 * wrap(t, f.regular, 8.5, A4.w - M * 2 - 30).length + 4;
-  }
 
-  y -= 4;
-  text(page, 'For RR Solar Solutions', M, y, { font: f.bold, size: 9 });
-  text(page, 'Accepted by customer', A4.w - M - 130, y, { font: f.bold, size: 9 });
-  page.drawLine({ start: { x: M, y: y - 26 }, end: { x: M + 150, y: y - 26 }, thickness: 0.7, color: rgb(0.75, 0.78, 0.82) });
-  page.drawLine({ start: { x: A4.w - M - 150, y: y - 26 }, end: { x: A4.w - M, y: y - 26 }, thickness: 0.7, color: rgb(0.75, 0.78, 0.82) });
+  standardTerms(q.totalAmount).forEach((t, i) => {
+    text(page, `${i + 1}.`, BOX.x + 4, y, { font: f.boldItalic, size: 8.2 });
+    wrap(t, f.italic, 8.2, BOX.w - 26).forEach((l, li) => {
+      text(page, l, BOX.x + 18, y - li * 10, { font: f.italic, size: 8.2, color: GREY });
+    });
+    y -= wrap(t, f.italic, 8.2, BOX.w - 26).length * 10 + 3;
+  });
 
-  footer(page, f);
+  text(page, `7.`, BOX.x + 4, y, { font: f.boldItalic, size: 8.2 });
+  text(page, `Customer care: ${site.phones[0]}  |  Installation and service: ${site.phones[0]}`, BOX.x + 18, y, {
+    font: f.italic, size: 8.2, color: GREY,
+  });
+  y -= 22;
+
+  /* ---------- Signature block ---------- */
+  const sigH = 54;
+  const sigSplit = BOX.x + 150;
+  box(page, BOX.x, y - sigH, BOX.w, sigH);
+  page.drawLine({ start: { x: sigSplit, y }, end: { x: sigSplit, y: y - sigH }, thickness: 0.9, color: LINE });
+  page.drawLine({
+    start: { x: BOX.x, y: y - sigH + 16 }, end: { x: sigSplit, y: y - sigH + 16 },
+    thickness: 0.9, color: LINE,
+  });
+
+  text(page, `For ${site.name.toUpperCase()}`, BOX.x + 6, y - 14, { font: f.bold, size: 8.5 });
+  text(page, 'Authorized Signatory', BOX.x + 6, y - sigH + 5, { font: f.bold, size: 8.5 });
+
+  wrap(
+    'Quotation accepted with the above terms and conditions, and this equals a Purchase Order issued by the Buyer.',
+    f.bold, 8.5, BOX.w - 168,
+  ).forEach((l, i) => {
+    text(page, l, sigSplit + 8, y - 14 - i * 11, { font: f.bold, size: 8.5 });
+  });
+  text(page, 'Signature of Buyer', sigSplit + 8, y - sigH + 8, { font: f.bold, size: 8.5 });
+
+  /* ---------- Reference line ---------- */
+  const quoteNo = quotationNumber(lead.id);
+  text(page, `Quotation Ref: ${quoteNo}`, BOX.x, M + 8, { font: f.regular, size: 7, color: GREY });
+  rightAlign(page, `${site.url.replace('https://', '')}  |  ${site.email}`, BOX.x + BOX.w, M + 8, {
+    font: f.regular, size: 7, color: GREY,
+  });
+
+  logger.info('quotation.pdf_built', {
+    leadId: lead.id, quoteNo, systemKw: q.systemKw, hasLogoFile: Boolean(logo),
+  });
+
   return doc.save();
 }
 

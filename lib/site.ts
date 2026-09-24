@@ -1,5 +1,7 @@
 export const site = {
   name: 'RR Solar Solutions',
+  /** Full registered name — used on quotations and other legal documents. */
+  legalName: 'RR SOLAR SOLUTIONS & EARTHING SYSTEMS',
   tagline: 'Complete Solar Energy Partner',
   url: 'https://www.rrsolarsolutions.in',
   email: 'rrsolarsolutions2@gmail.com',
@@ -13,6 +15,19 @@ export const site = {
     postalCode: '226022',
     region: 'Uttar Pradesh',
     country: 'IN',
+  },
+  /**
+   * Accreditations, shown on the website and on quotations. Single source of
+   * truth — edit here and the header, hero, footer, OG image and PDF all follow.
+   */
+  certifications: ['MNRE', 'UPNEDA'] as readonly string[],
+  certificationLabel: 'MNRE & UPNEDA Certified',
+  /** Printed on quotations so customers can transfer the advance. */
+  bank: {
+    accountName: 'RR SOLAR SOLUTIONS & EARTHING SYSTEMS',
+    ifsc: 'SBIN0010342',
+    accountNumber: '44714551279',
+    accountType: 'Current Account',
   },
 } as const;
 
